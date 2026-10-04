@@ -1,0 +1,363 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+enum IncomeSource {
+  SALARY
+  FREELANCE
+  BUSINESS
+  STUDENT
+  OTHER
+}
+
+enum Priority {
+  SAVE_MORE
+  CONTROL_SPENDING
+  PLAN_PURCHASE
+  PAY_DEBT
+  EMERGENCY_FUND
+  UNDERSTAND_FINANCES
+}
+
+enum AccountType {
+  BANK
+  CASH
+  CARD 
+  WALLET
+  OTHER
+}
+
+enum TransactionType {
+  DEBIT
+  CREDIT
+}
+
+enum GoalCategory {
+  EMERGENCY_FUND
+  TRAVEL
+  CAR
+  HOUSE
+  EDUCATION
+  INVESTMENT
+  CUSTOM
+}
+
+enum SubscriptionFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  EXPECTED
+  IGNORED
+  INACTIVE
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // directly on user rather than a seperate table
+  incomeSource   IncomeSource?
+  monthlyIncome  Decimal?       @db.Decimal(14, 2)
+  incomeIsFixed  Boolean?
+  priority       Priority?
+  onboardingDone Boolean      @default(false)
+  accounts       Account[]
+  goals          Goal[]
+  subscriptions  Subscription[]
+  obligations    Obligation[]
+  scenarios      Scenario[]
+  insights       Insight[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  workspaceMemberships WorkspaceMember[]
+  personalLoans  PersonalLoan[]
+
+  @@map("users")
+}
+
+enum WorkspaceType {
+  TRIP
+  FLATMATES
+  FAMILY
+  OTHER
+}
+
+model Workspace {
+  id        String        @id @default(cuid())
+  name      String
+  slug      String        @unique
+  type      WorkspaceType @default(OTHER)
+  createdBy String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  members  WorkspaceMember[]
+  expenses GroupExpense[]
+  invites  WorkspaceInvite[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  joinedAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model WorkspaceInvite {
+  id          String   @id @default(cuid())
+  workspaceId String
+  code        String   @unique
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_invites")
+}
+
+model GroupExpense {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  paidByUserId String
+  description  String
+  amount       Decimal  @db.Decimal(14, 2)
+  category     String?
+  tag          String?
+  date         DateTime
+  createdAt    DateTime @default(now())
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  splits    GroupExpenseSplit[]
+
+  @@index([workspaceId])
+  @@map("group_expenses")
+}
+
+model GroupExpenseSplit {
+  id             String  @id @default(cuid())
+  groupExpenseId String
+  userId         String
+  shareAmount    Decimal @db.Decimal(14, 2)
+
+  groupExpense GroupExpense @relation(fields: [groupExpenseId], references: [id], onDelete: Cascade)
+
+  @@index([groupExpenseId])
+  @@index([userId])
+  @@map("group_expense_splits")
+}
+
+enum LoanType {
+  LENT
+  BORROWED
+}
+
+model PersonalLoan {
+  id          String    @id @default(cuid())
+  userId      String
+  personName  String
+  type        LoanType
+  amount      Decimal   @db.Decimal(14, 2)
+  description String?
+  date        DateTime
+  settled     Boolean   @default(false)
+  settledAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("personal_loans")
+}
+
+model Account {
+  id               String        @id @default(cuid())
+  userId           String    
+  institution      String
+  accountType      AccountType
+  currentBalance   Decimal       @db.Decimal(14, 2)
+  currency         String        @default("INR")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions     Transaction[]
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Category {
+  id   String    @id @default(cuid())
+  name String @unique 
+  icon String?
+
+  transactions Transaction[]
+
+  @@map("categories")
+}
+
+model Transaction {
+  id     String     @id @default(cuid())
+  accountId String
+  amount  Decimal  @db.Decimal(14, 2)
+  type   TransactionType
+  merchant String
+  categoryId String?
+  date DateTime
+  description String?
+  recurring Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id])
+
+  @@index([accountId])
+  @@index([categoryId])
+  @@index([date])
+  @@map("transactions")
+}
+
+model Goal {
+  id              String          @id @default(cuid())
+  userId          String         
+  name            String
+  category        GoalCategory    @default(CUSTOM)
+  targetAmount    Decimal         @db.Decimal(14, 2)
+  currentAmount   Decimal         @default(0) @db.Decimal(14, 2)
+  targetDate      DateTime?       
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references:[id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model Subscription {
+  id         String                   @id @default(cuid())
+  userId     String
+  merchant   String
+  amount     Decimal                  @db.Decimal(14, 2)
+  frequency  SubscriptionFrequency    
+  nextDate   DateTime?
+  status     SubscriptionStatus       @default(EXPECTED)
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+enum ObligationType {
+  RENT 
+  EMI 
+  LOAN
+  CREDIT_CARD
+  SUBSCRIPTION
+  OTHER
+}
+
+model Obligation {
+  id          String          @id @default(cuid())
+  userId      String         
+  type        ObligationType
+  amount      Decimal         @db.Decimal(14, 2)
+  dueDate     DateTime
+  recurring   Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("obligations")
+}
+
+model Scenario {
+  id              String   @id @default(cuid())
+  userId          String   
+  name            String
+  assumptionsJson  Json
+  resultJson      Json?
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("scenarios")
+}
+
+enum InsightSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model Insight {
+  id          String            @id @default(cuid())
+  userId      String
+  type        String
+  title       String
+  description String
+  severity    InsightSeverity   @default(INFO)
+  createdAt   DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("insights")
+}
+
+model Notification {
+  id         String      @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  body       String
+  readAt     DateTime?
+  createdAt  DateTime    @default(now())
+
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String
+  action       String
+  entityType   String
+  entityId     String?
+  createdAt    DateTime @default(now())
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("audit_logs")
+}
